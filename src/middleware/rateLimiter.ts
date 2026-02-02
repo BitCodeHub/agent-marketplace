@@ -4,7 +4,6 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { Redis } from 'ioredis';
 
 // Simple in-memory store for MVP (replace with Redis in production)
 const rateLimitStore = new Map<string, { tokens: number; lastRefill: number }>();
@@ -33,7 +32,7 @@ const STRICT_LIMITS: Record<string, RateLimitConfig> = {
  * Token bucket rate limiter
  */
 export function rateLimiter(config: RateLimitConfig = DEFAULT_LIMITS) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
     const key = getClientKey(req);
     const now = Date.now();
     
@@ -83,13 +82,13 @@ function getClientKey(req: Request): string {
 /**
  * Apply rate limits based on endpoint
  */
-export function endpointRateLimiter(req: Request, res: Response, next: NextFunction) {
+export function endpointRateLimiter(req: Request, res: Response, next: NextFunction): void {
   const path = req.path;
   
   // Find matching limit config
   const config = STRICT_LIMITS[path] || DEFAULT_LIMITS;
   
-  return rateLimiter(config)(req, res, next);
+  rateLimiter(config)(req, res, next);
 }
 
 /**

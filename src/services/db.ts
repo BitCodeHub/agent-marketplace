@@ -142,7 +142,7 @@ class DatabaseService extends EventEmitter {
    */
   private setupMiddleware() {
     // Query timing middleware
-    this.client.$use(async (params, next) => {
+    this.client.$use(async (params: any, next: any) => {
       const startTime = Date.now();
       const queryId = ++this.queryCount;
       
@@ -455,8 +455,10 @@ class DatabaseService extends EventEmitter {
   ): Promise<T> {
     const timeout = timeoutMs || this.config.queryTimeout.defaultTimeoutMs;
     
+    const queryPromise: Promise<T> = this.client.$queryRawUnsafe(query, ...params);
+    
     return Promise.race([
-      this.client.$queryRawUnsafe<T>(query, ...params),
+      queryPromise,
       new Promise<T>((_, reject) => {
         setTimeout(() => reject(new Error(`Query timeout after ${timeout}ms`)), timeout);
       }),

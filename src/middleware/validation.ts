@@ -10,13 +10,14 @@ import { AGENT_LIMITS, TASK_LIMITS } from '../config/limits';
 /**
  * Handle validation errors
  */
-export function handleValidationErrors(req: Request, res: Response, next: NextFunction) {
+export function handleValidationErrors(req: Request, res: Response, next: NextFunction): void {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({
+    res.status(400).json({
       error: 'Validation failed',
       details: errors.array(),
     });
+    return;
   }
   next();
 }
@@ -137,7 +138,7 @@ export const validateSubmission = [
 /**
  * Sanitize all string inputs to prevent injection
  */
-export function sanitizeInput(req: Request, res: Response, next: NextFunction) {
+export function sanitizeInput(req: Request, _res: Response, next: NextFunction): void {
   const sanitize = (obj: any): any => {
     if (typeof obj === 'string') {
       // Remove potential injection patterns

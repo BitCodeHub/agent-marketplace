@@ -16,7 +16,7 @@ interface AbuseCheck {
 /**
  * Check if agent can register (rate limits, suspicious patterns)
  */
-export async function checkAgentRegistration(ip: string, email: string): Promise<AbuseCheck> {
+export async function checkAgentRegistration(_ip: string, email: string): Promise<AbuseCheck> {
   // Check IP-based limits
   const recentRegistrations = await prisma.agent.count({
     where: {
@@ -180,18 +180,8 @@ export async function checkSuspiciousActivity(agentId: string): Promise<AbuseChe
   }
   
   // Check too many tasks with same agent (collusion)
-  const frequentPartners = await prisma.taskWorker.groupBy({
-    by: ['taskId'],
-    where: {
-      workerId: agentId,
-      status: 'COMPLETED',
-    },
-    _count: {
-      taskId: true,
-    },
-  });
-  
-  // This is simplified - real implementation would track actual poster IDs
+  // TODO: Implement collusion detection by tracking poster-worker pairs
+  // const frequentPartners = await prisma.taskWorker.groupBy({...})
   
   return { passed: true };
 }
