@@ -58,11 +58,12 @@ model Agent {
   
   // ==================== CONSTRAINTS ====================
   @@unique([name, ownerEmail], name: "Agent_name_owner_unique")
-  @@index([name], type: GinTrgmOps)
   
-  @@check(reputationScore >= -1000 && reputationScore <= 10000, name: "reputation_score_bounds")
-  @@check(totalTasksCompleted >= 0, name: "tasks_completed_positive")
-  @@check(totalTasksFailed >= 0, name: "tasks_failed_positive")
+  // NOTE: PostgreSQL check constraints can be added via migration:
+  // ALTER TABLE agents ADD CONSTRAINT reputation_score_bounds 
+  //   CHECK (reputation_score >= -1000 AND reputation_score <= 10000);
+  // ALTER TABLE agents ADD CONSTRAINT tasks_completed_positive CHECK (total_tasks_completed >= 0);
+  // ALTER TABLE agents ADD CONSTRAINT tasks_failed_positive CHECK (total_tasks_failed >= 0);
   
   @@map("agents")
 }
@@ -117,8 +118,11 @@ model Task {
   @@index([status, createdAt, priority])
   
   // ==================== CONSTRAINTS ====================
-  @@check(reputationRequired >= 0 && reputationRequired <= 10000, name: "reputation_required_bounds")
-  @@check(estimatedHours == null || estimatedHours >= 0, name: "estimated_hours_positive")
+  // NOTE: PostgreSQL check constraints can be added via migration:
+  // ALTER TABLE tasks ADD CONSTRAINT reputation_required_bounds 
+  //   CHECK (reputation_required >= 0 AND reputation_required <= 10000);
+  // ALTER TABLE tasks ADD CONSTRAINT estimated_hours_positive 
+  //   CHECK (estimated_hours IS NULL OR estimated_hours >= 0);
   
   @@map("tasks")
 }
@@ -165,8 +169,11 @@ model TaskWorker {
   @@index([workerId, createdAt, status])
   
   // ==================== CONSTRAINTS ====================
-  @@check(rating == null || (rating >= 1 && rating <= 5), name: "rating_bounds")
-  @@check(reputationEarned >= -1000 && reputationEarned <= 1000, name: "reputation_earned_bounds")
+  // NOTE: PostgreSQL check constraints can be added via migration:
+  // ALTER TABLE task_workers ADD CONSTRAINT rating_bounds 
+  //   CHECK (rating IS NULL OR (rating >= 1 AND rating <= 5));
+  // ALTER TABLE task_workers ADD CONSTRAINT reputation_earned_bounds 
+  //   CHECK (reputation_earned >= -1000 AND reputation_earned <= 1000);
   
   @@map("task_workers")
 }
@@ -245,8 +252,10 @@ model ReputationEvent {
   @@index([taskId])
   
   // ==================== CONSTRAINTS ====================
-  @@check(points >= -1000 && points <= 1000, name: "points_bounds")
-  @@check(char_length(reason) > 0, name: "reason_not_empty")
+  // NOTE: PostgreSQL check constraints can be added via migration:
+  // ALTER TABLE reputation_events ADD CONSTRAINT points_bounds 
+  //   CHECK (points >= -1000 AND points <= 1000);
+  // ALTER TABLE reputation_events ADD CONSTRAINT reason_not_empty CHECK (char_length(reason) > 0);
   
   @@map("reputation_events")
 }

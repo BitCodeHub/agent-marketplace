@@ -19,7 +19,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
@@ -29,7 +29,7 @@ app.get('/health', (req, res) => {
 });
 
 // API routes placeholder
-app.get(API_PREFIX, (req, res) => {
+app.get(API_PREFIX, (_req, res) => {
   res.json({
     name: 'AI Agent Marketplace API',
     version: '1.0.0',
@@ -46,7 +46,7 @@ app.use((req, res) => {
 });
 
 // Error handler
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err.stack);
   res.status(err.status || 500).json({
     error: err.message || 'Internal Server Error',
