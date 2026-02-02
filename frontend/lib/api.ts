@@ -4,8 +4,8 @@ export interface Task {
   id: string;
   title: string;
   description: string;
-  bounty: number;
-  currency: string;
+  reputationRequired: number;
+  reputationReward: number;
   status: 'open' | 'in_progress' | 'completed' | 'cancelled';
   skills: string[];
   posterId: string;
@@ -24,7 +24,6 @@ export interface Agent {
   skills: string[];
   reputation: number;
   completedTasks: number;
-  totalEarnings: number;
   portfolio?: PortfolioItem[];
   reviews?: Review[];
 }
@@ -50,15 +49,16 @@ export interface Review {
 export interface Submission {
   id: string;
   taskId: string;
-  workerId: string;
+  agentId: string;
   content: string;
   attachments?: string[];
-  status: 'pending' | 'approved' | 'rejected';
   submittedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
 }
 
+// API client
 class ApiClient {
-  private async fetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  private async fetch(endpoint: string, options?: RequestInit) {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers: {
@@ -68,42 +68,37 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      throw new Error(`API Error: ${response.statusText}`);
+      throw new Error(`API error: ${response.statusText}`);
     }
 
     return response.json();
   }
 
   // Tasks
-  async getTasks(filters?: { status?: string; skills?: string[]; search?: string }): Promise<Task[]> {
-    const params = new URLSearchParams();
-    if (filters?.status) params.append('status', filters.status);
-    if (filters?.skills) params.append('skills', filters.skills.join(','));
-    if (filters?.search) params.append('search', filters.search);
-    
-    return this.fetch<Task[]>(`/tasks?${params.toString()}`);
+  async getTasks(): Promise<Task[]> {
+    return this.fetch('/tasks');
   }
 
   async getTask(id: string): Promise<Task> {
-    return this.fetch<Task>(`/tasks/${id}`);
+    return this.fetch(`/tasks/${id}`);
   }
 
-  async createTask(task: Omit<Task, 'id' | 'createdAt'>): Promise<Task> {
-    return this.fetch<Task>('/tasks', {
+  async createTask(task: Partial<Task>): Promise<Task> {
+    return this.fetch('/tasks', {
       method: 'POST',
       body: JSON.stringify(task),
     });
   }
 
   async claimTask(taskId: string, agentId: string): Promise<void> {
-    return this.fetch<void>(`/tasks/${taskId}/claim`, {
+    return this.fetch(`/tasks/${taskId}/claim`, {
       method: 'POST',
       body: JSON.stringify({ agentId }),
     });
   }
 
-  async submitWork(taskId: string, submission: Omit<Submission, 'id' | 'submittedAt' | 'status'>): Promise<Submission> {
-    return this.fetch<Submission>(`/tasks/${taskId}/submit`, {
+  async submitWork(taskId: string, submission: Partial<Submission>): Promise<void> {
+    return this.fetch(`/tasks/${taskId}/submit`, {
       method: 'POST',
       body: JSON.stringify(submission),
     });
@@ -111,16 +106,18 @@ class ApiClient {
 
   // Agents
   async getAgents(): Promise<Agent[]> {
-    return this.fetch<Agent[]>('/agents');
+    return this.fetch('/agents');
   }
 
   async getAgent(id: string): Promise<Agent> {
-    return this.fetch<Agent>(`/agents/${id}`);
+    return this.fetch(`/agents/${id}`);
   }
 
-  // Reviews
-  async getAgentReviews(agentId: string): Promise<Review[]> {
-    return this.fetch<Review[]>(`/agents/${agentId}/reviews`);
+  async registerAgent(agent: Partial<Agent>): Promise<Agent> {
+    return this.fetch('/agents', {
+      method: 'POST',
+      body: JSON.stringify(agent),
+    });
   }
 }
 

@@ -2,10 +2,9 @@
 
 import { Task } from '@/lib/api';
 import { 
-  CurrencyDollarIcon, 
+  StarIcon, 
   ClockIcon, 
   UserCircleIcon,
-  StarIcon,
   ArrowRightIcon
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
@@ -15,13 +14,6 @@ interface TaskCardProps {
 }
 
 export function TaskCard({ task }: TaskCardProps) {
-  const formatCurrency = (amount: number, currency: string) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency,
-    }).format(amount);
-  };
-
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return new Intl.DateTimeFormat('en-US', {
@@ -33,7 +25,7 @@ export function TaskCard({ task }: TaskCardProps) {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'open':
-        return 'bg-green-100 text-green-800';
+        return 'bg-emerald-100 text-emerald-800';
       case 'in_progress':
         return 'bg-blue-100 text-blue-800';
       case 'completed':
@@ -47,13 +39,13 @@ export function TaskCard({ task }: TaskCardProps) {
 
   return (
     <Link href={`/tasks/${task.id}`}>
-      <div className="group bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-lg hover:border-primary-300 transition-all duration-300 cursor-pointer">
+      <div className="group bg-slate-800 rounded-xl border border-slate-700 p-6 hover:border-emerald-500/50 transition-all duration-300 cursor-pointer">
         <div className="flex justify-between items-start mb-4">
           <div className="flex-1">
-            <h3 className="text-lg font-semibold text-gray-900 group-hover:text-primary-600 transition-colors line-clamp-1">
+            <h3 className="text-lg font-semibold text-white group-hover:text-emerald-400 transition-colors line-clamp-1">
               {task.title}
             </h3>
-            <p className="text-gray-600 text-sm mt-1 line-clamp-2">
+            <p className="text-slate-400 text-sm mt-1 line-clamp-2">
               {task.description}
             </p>
           </div>
@@ -66,44 +58,44 @@ export function TaskCard({ task }: TaskCardProps) {
           {task.skills.slice(0, 4).map((skill) => (
             <span
               key={skill}
-              className="px-2 py-1 bg-accent-50 text-accent-700 text-xs font-medium rounded-md"
+              className="px-2 py-1 bg-slate-700 text-slate-300 text-xs font-medium rounded-md"
             >
               {skill}
             </span>
           ))}
           {task.skills.length > 4 && (
-            <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs font-medium rounded-md">
+            <span className="px-2 py-1 bg-slate-600 text-slate-400 text-xs font-medium rounded-md">
               +{task.skills.length - 4}
             </span>
           )}
         </div>
 
-        <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+        <div className="flex items-center justify-between pt-4 border-t border-slate-700">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5 text-gray-700">
-              <CurrencyDollarIcon className="w-5 h-5 text-green-600" />
+            <div className="flex items-center gap-1.5 text-emerald-400">
+              <StarIcon className="w-5 h-5" />
               <span className="font-semibold">
-                {formatCurrency(task.bounty, task.currency)}
+                +{task.reputationReward} rep
               </span>
             </div>
             
-            <div className="flex items-center gap-1.5 text-gray-600">
+            <div className="flex items-center gap-1.5 text-slate-400">
               <UserCircleIcon className="w-5 h-5" />
               <span className="text-sm">{task.posterName}</span>
               <div className="flex items-center gap-0.5">
                 <StarIcon className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                <span className="text-sm font-medium">{task.posterReputation.toFixed(1)}</span>
+                <span className="text-sm font-medium">{task.posterReputation}</span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 text-gray-500">
+          <div className="flex items-center gap-1.5 text-slate-500">
             <ClockIcon className="w-4 h-4" />
             <span className="text-sm">{formatDate(task.createdAt)}</span>
           </div>
         </div>
 
-        <div className="mt-4 flex items-center text-primary-600 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="mt-4 flex items-center text-emerald-400 text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
           View Details
           <ArrowRightIcon className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
         </div>
