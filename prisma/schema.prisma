@@ -1,20 +1,24 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "debian-openssl-3.0.x"]
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pg_trgm(schema: "public"), btree_gin(schema: "public")]
 }
 
 // ==================== AGENT MODEL ====================
 // Represents an AI agent registered in the marketplace
 model Agent {
   id              String   @id @default(uuid())
-  name            String
-  description     String?
-  ownerEmail      String
-  publicKey       String   @unique // For cryptographic verification
+  name            String   @db.VarChar(100)
+  description     String?  @db.VarChar(2000)
+  ownerEmail      String   @db.VarChar(255)
+  publicKey       String   @unique @db.VarChar(255) // For cryptographic verification
   
   // Agent capabilities and skills
   capabilities    String[] // Array of capability tags ["python", "writing", "analysis"]
@@ -41,10 +45,25 @@ model Agent {
   reputationEvents ReputationEvent[]
   createdTasks    Task[]   @relation("TaskCreator")
   
+  // ==================== INDEXES ====================
   @@index([publicKey])
   @@index([reputationScore])
   @@index([status])
-  @@index([capabilities])
+  @@index([capabilities], type: Gin)
+  @@index([createdAt])
+  @@index([status, reputationScore])
+  @@index([isAvailable, status])
+  @@index([reputationScore, totalTasksCompleted])
+  @@index([createdAt, status])
+  
+  // ==================== CONSTRAINTS ====================
+  @@unique([name, ownerEmail], name: "Agent_name_owner_unique")
+  @@index([name], type: GinTrgmOps)
+  
+  @@check(reputationScore >= -1000 && reputationScore <= 10000, name: "reputation_score_bounds")
+  @@check(totalTasksCompleted >= 0, name: "tasks_completed_positive")
+  @@check(totalTasksFailed >= 0, name: "tasks_failed_positive")
+  
   @@map("agents")
 }
 
@@ -52,11 +71,11 @@ model Agent {
 // Represents a task/job posted in the marketplace (NO BOUNTY)
 model Task {
   id              String   @id @default(uuid())
-  title           String
-  description     String
+  title           String   @db.VarChar(200)
+  description     String   @db.VarChar(5000)
   
   // Task categorization
-  category        String
+  category        String   @db.VarChar(50)
   tags            String[]
   
   // Requirements
@@ -76,7 +95,7 @@ model Task {
   
   // Relationships
   posterId        String
-  poster          Agent    @relation("TaskCreator", fields: [posterId], references: [id])
+  poster          Agent    @relation("TaskCreator", fields: [posterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   
   claims          TaskWorker[]
   
@@ -84,9 +103,23 @@ model Task {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   
+  // ==================== INDEXES ====================
   @@index([status])
   @@index([posterId])
   @@index([reputationRequired])
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([status, priority])
+  @@index([posterId, status])
+  @@index([category, status])
+  @@index([deadline, status])
+  @@index([reputationRequired, status])
+  @@index([status, createdAt, priority])
+  
+  // ==================== CONSTRAINTS ====================
+  @@check(reputationRequired >= 0 && reputationRequired <= 10000, name: "reputation_required_bounds")
+  @@check(estimatedHours == null || estimatedHours >= 0, name: "estimated_hours_positive")
+  
   @@map("tasks")
 }
 
@@ -97,32 +130,44 @@ model TaskWorker {
   
   // Relationships
   taskId          String
-  task            Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task            Task     @relation(fields: [taskId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   
   workerId        String
-  worker          Agent    @relation(fields: [workerId], references: [id])
+  worker          Agent    @relation(fields: [workerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   
   // Claim status
   status          WorkerStatus @default(PENDING)
   
   // Work submission
-  submission      String?  // Work output/deliverables
-  submissionUrl   String?  // External link to work
+  submission      String?  @db.VarChar(10000) // Work output/deliverables
+  submissionUrl   String?  @db.VarChar(500)   // External link to work
   submittedAt     DateTime?
   
   // Review
   rating          Int?     // 1-5 star rating from poster
-  feedback        String?  // Text feedback
+  feedback        String?  @db.VarChar(2000)  // Text feedback
   reputationEarned Float  @default(0) // Points earned for completion
   
   // Timestamps
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   
+  // ==================== INDEXES ====================
   @@unique([taskId, workerId])
   @@index([taskId])
   @@index([workerId])
   @@index([status])
+  @@index([createdAt])
+  @@index([taskId, status])
+  @@index([workerId, status])
+  @@index([status, createdAt])
+  @@index([taskId, workerId, status])
+  @@index([workerId, createdAt, status])
+  
+  // ==================== CONSTRAINTS ====================
+  @@check(rating == null || (rating >= 1 && rating <= 5), name: "rating_bounds")
+  @@check(reputationEarned >= -1000 && reputationEarned <= 1000, name: "reputation_earned_bounds")
+  
   @@map("task_workers")
 }
 
@@ -133,16 +178,16 @@ model Portfolio {
   
   // Relationships
   agentId         String
-  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   
   // Portfolio item details
-  title           String
-  description     String
-  category        String
+  title           String   @db.VarChar(200)
+  description     String   @db.VarChar(2000)
+  category        String   @db.VarChar(50)
   
   // Proof of work
-  proofUrl        String   // Link to GitHub, demo, document, etc.
-  thumbnailUrl    String?  // Optional image
+  proofUrl        String   @db.VarChar(500) // Link to GitHub, demo, document, etc.
+  thumbnailUrl    String?  @db.VarChar(500) // Optional image
   
   // Skills demonstrated
   skills          String[] // Skills used in this work
@@ -154,8 +199,16 @@ model Portfolio {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   
+  // ==================== INDEXES ====================
   @@index([agentId])
   @@index([category])
+  @@index([createdAt])
+  @@index([agentId, createdAt])
+  @@index([category, createdAt])
+  
+  // ==================== CONSTRAINTS ====================
+  @@unique([agentId, title, proofUrl], name: "Portfolio_agent_title_url_unique")
+  
   @@map("portfolios")
 }
 
@@ -166,12 +219,12 @@ model ReputationEvent {
   
   // Relationships
   agentId         String
-  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   
   // Event details
   type            ReputationType
   points          Float    // Positive or negative points
-  reason          String   // Human-readable explanation
+  reason          String   @db.VarChar(500) // Human-readable explanation
   
   // Optional task reference
   taskId          String?
@@ -180,9 +233,21 @@ model ReputationEvent {
   // Timestamps
   createdAt       DateTime @default(now())
   
+  // ==================== INDEXES ====================
   @@index([agentId])
   @@index([type])
   @@index([createdAt])
+  @@index([agentId, createdAt])
+  @@index([agentId, type])
+  @@index([type, createdAt])
+  @@index([agentId, type, createdAt])
+  @@index([createdAt, agentId])
+  @@index([taskId])
+  
+  // ==================== CONSTRAINTS ====================
+  @@check(points >= -1000 && points <= 1000, name: "points_bounds")
+  @@check(char_length(reason) > 0, name: "reason_not_empty")
+  
   @@map("reputation_events")
 }
 
