@@ -1,0 +1,310 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== AGENT MODEL ====================
+// Represents an AI agent registered in the marketplace
+model Agent {
+  id              String   @id @default(uuid())
+  name            String
+  description     String?
+  ownerEmail      String
+  ownerWallet     String   // Blockchain wallet address
+  publicKey       String   @unique // For verification
+  privateKeyHash  String?  // Encrypted private key for automated operations
+  
+  // Agent capabilities and skills
+  capabilities    String[] // Array of capability tags
+  categories      String[] // Agent categories/tags
+  
+  // Reputation system
+  reputationScore Float    @default(0)
+  totalTasksCompleted Int  @default(0)
+  totalTasksFailed Int     @default(0)
+  totalEarnings   Decimal  @default(0) @db.Decimal(36, 18)
+  
+  // Availability and status
+  isAvailable     Boolean  @default(true)
+  isVerified      Boolean  @default(false)
+  status          AgentStatus @default(ACTIVE)
+  
+  // On-chain identity
+  contractAddress String?  // Deployed agent contract address
+  tokenId         String?  // NFT representation if applicable
+  
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastActiveAt    DateTime @default(now())
+  
+  // Relationships
+  portfolios      Portfolio[]
+  taskWorkers     TaskWorker[]
+  reputationEvents ReputationEvent[]
+  createdTasks    Task[]   @relation("TaskCreator")
+  
+  @@index([ownerWallet])
+  @@index([publicKey])
+  @@index([reputationScore])
+  @@index([status])
+  @@index([capabilities])
+  @@map("agents")
+}
+
+// ==================== TASK MODEL ====================
+// Represents a task/job posted in the marketplace
+model Task {
+  id              String   @id @default(uuid())
+  title           String
+  description     String
+  
+  // Task categorization
+  category        String
+  tags            String[]
+  
+  // Requirements
+  requirements    String[] // Required capabilities
+  deliverables    String[] // Expected deliverables
+  
+  // Timeline
+  deadline        DateTime?
+  estimatedHours  Int?     // Estimated completion time
+  
+  // Financial
+  bountyAmount    Decimal  @db.Decimal(36, 18)
+  currency        String   @default("ETH") // ETH, USDC, etc.
+  escrowAddress   String?  // Smart contract escrow address
+  
+  // Status tracking
+  status          TaskStatus @default(OPEN)
+  priority        TaskPriority @default(MEDIUM)
+  
+  // Creator relationship
+  creatorId       String
+  creator         Agent    @relation("TaskCreator", fields: [creatorId], references: [id])
+  
+  // Worker assignment
+  workers         TaskWorker[]
+  
+  // Result
+  resultData      String?  // IPFS hash or result URL
+  resultSubmittedAt DateTime?
+  
+  // Dispute
+  isDisputed      Boolean  @default(false)
+  disputeReason   String?
+  
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  expiresAt       DateTime? // Task expiration
+  
+  // On-chain data
+  transactionHash String?  // Creation transaction
+  blockNumber     BigInt?
+  
+  @@index([status])
+  @@index([creatorId])
+  @@index([category])
+  @@index([tags])
+  @@index([bountyAmount])
+  @@index([createdAt])
+  @@map("tasks")
+}
+
+// ==================== TASK WORKER MODEL ====================
+// Junction table for task assignments with stake info
+model TaskWorker {
+  id              String   @id @default(uuid())
+  
+  // Relationships
+  taskId          String
+  task            Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  agentId         String
+  agent           Agent    @relation(fields: [agentId], references: [id])
+  
+  // Application details
+  proposal        String?  // Bid proposal message
+  proposedPrice   Decimal? @db.Decimal(36, 18) // Counter-offer price
+  estimatedDays   Int?     // Estimated completion days
+  
+  // Staking
+  stakeAmount     Decimal  @default(0) @db.Decimal(36, 18)
+  stakeTxHash     String?
+  
+  // Status
+  status          TaskWorkerStatus @default(APPLIED)
+  
+  // Assignment
+  assignedAt      DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  
+  // Work tracking
+  progressPercent Int      @default(0)
+  checkpoints     Json?    // Progress checkpoints
+  
+  // Review
+  rating          Int?     // 1-5 rating
+  reviewComment   String?
+  reviewSubmittedAt DateTime?
+  
+  // Payment
+  paymentAmount   Decimal? @db.Decimal(36, 18)
+  paymentTxHash   String?
+  paymentStatus   PaymentStatus @default(PENDING)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@unique([taskId, agentId])
+  @@index([taskId])
+  @@index([agentId])
+  @@index([status])
+  @@map("task_workers")
+}
+
+// ==================== PORTFOLIO MODEL ====================
+// Agent work samples and portfolio items
+model Portfolio {
+  id              String   @id @default(uuid())
+  
+  // Relationship
+  agentId         String
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  
+  // Content
+  title           String
+  description     String?
+  projectUrl      String?
+  imageUrl        String?
+  
+  // Media (IPFS hashes or URLs)
+  mediaUrls       String[]
+  
+  // Metadata
+  category        String
+  tags            String[]
+  completionDate  DateTime?
+  clientName      String?
+  
+  // Verification
+  isVerified      Boolean  @default(false)
+  verifiedBy      String?
+  verifiedAt      DateTime?
+  
+  // Stats
+  views           Int      @default(0)
+  likes           Int      @default(0)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([agentId])
+  @@index([category])
+  @@map("portfolios")
+}
+
+// ==================== REPUTATION EVENT MODEL ====================
+// Tracks all reputation score changes
+model ReputationEvent {
+  id              String   @id @default(uuid())
+  
+  // Relationship
+  agentId         String
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  
+  // Event details
+  eventType       ReputationEventType
+  scoreChange     Float    // Positive or negative change
+  newScore        Float    // Score after change
+  
+  // Context
+  taskId          String?
+  description     String
+  metadata        Json?    // Additional event data
+  
+  // Verification
+  verifiedBy      String?  // Verifier agent or system
+  txHash          String?  // On-chain verification hash
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([agentId])
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("reputation_events")
+}
+
+// ==================== ENUMS ====================
+
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  BANNED
+  VERIFIED
+}
+
+enum TaskStatus {
+  DRAFT
+  OPEN
+  BIDDING
+  ASSIGNED
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+  CANCELLED
+  DISPUTED
+  EXPIRED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskWorkerStatus {
+  APPLIED
+  SHORTLISTED
+  ASSIGNED
+  REJECTED
+  WORKING
+  SUBMITTED
+  APPROVED
+  DISPUTED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  IN_ESCROW
+  RELEASED
+  REFUNDED
+  DISPUTED
+}
+
+enum ReputationEventType {
+  TASK_COMPLETED
+  TASK_FAILED
+  TASK_CANCELLED
+  POSITIVE_REVIEW
+  NEGATIVE_REVIEW
+  VERIFICATION_PASSED
+  VERIFICATION_FAILED
+  DISPUTE_RESOLVED
+  DISPUTE_LOST
+  STAKE_LOCKED
+  STAKE_SLASHED
+  STAKE_RETURNED
+  COMMUNITY_VOTE
+  SYSTEM_ADJUSTMENT
+}

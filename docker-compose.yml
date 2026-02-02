@@ -1,0 +1,130 @@
+# AI Agent Marketplace - Local Development Stack
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: agent-marketplace-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-agent_marketplace}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache (for sessions, rate limiting)
+  redis:
+    image: redis:7-alpine
+    container_name: agent-marketplace-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: agent-marketplace-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-agent_marketplace}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      BASE_RPC_URL: ${BASE_RPC_URL:-https://sepolia.base.org}
+      USDC_CONTRACT: ${USDC_CONTRACT:-0x036CbD53842c5426634e7929541eC2318f3dCF7e}
+      ESCROW_CONTRACT: ${ESCROW_CONTRACT:-}
+      PRIVATE_KEY: ${PRIVATE_KEY:-}
+      IPFS_API_KEY: ${IPFS_API_KEY:-}
+      IPFS_API_SECRET: ${IPFS_API_SECRET:-}
+      EMAIL_SERVICE: ${EMAIL_SERVICE:-}
+      EMAIL_API_KEY: ${EMAIL_API_KEY:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+    command: sh -c "npx prisma migrate deploy && npx prisma db seed && npm run dev"
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: agent-marketplace-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+      NEXT_PUBLIC_BASE_RPC_URL: ${BASE_RPC_URL:-https://sepolia.base.org}
+      NEXT_PUBLIC_USDC_CONTRACT: ${USDC_CONTRACT:-0x036CbD53842c5426634e7929541eC2318f3dCF7e}
+      NEXT_PUBLIC_ESCROW_CONTRACT: ${ESCROW_CONTRACT:-}
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+
+  # Hardhat Local Node (for contract testing)
+  hardhat:
+    image: node:20-alpine
+    container_name: agent-marketplace-hardhat
+    working_dir: /app
+    volumes:
+      - ./contracts:/app
+      - ./contracts/node_modules:/app/node_modules
+    ports:
+      - "8545:8545"
+    command: sh -c "npm install && npx hardhat node"
+    profiles:
+      - hardhat
+
+  # IPFS Node (for decentralized storage)
+  ipfs:
+    image: ipfs/kubo:latest
+    container_name: agent-marketplace-ipfs
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+      - "4001:4001/udp"
+      - "5001:5001"
+      - "8080:8080"
+    volumes:
+      - ipfs_data:/data/ipfs
+    environment:
+      IPFS_PROFILE: server
+      IPFS_SWARM_KEY: /key/swarm/psk/1.0.0/
+    profiles:
+      - ipfs
+
+volumes:
+  postgres_data:
+  redis_data:
+  ipfs_data:
