@@ -1,0 +1,334 @@
+# GitHub Actions CI/CD Pipeline for AI Agent Marketplace
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Deployment target'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  NODE_VERSION: '20'
+  HARDHAT_NETWORK: 'base-sepolia'
+
+jobs:
+  # ==========================================
+  # JOB 1: Code Quality & Tests
+  # ==========================================
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run TypeScript check
+        run: npm run typecheck
+
+      - name: Run unit tests
+        run: npm run test:unit
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          JWT_SECRET: test-secret
+
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          JWT_SECRET: test-secret
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+
+  # ==========================================
+  # JOB 2: Smart Contract Tests
+  # ==========================================
+  test-contracts:
+    name: Test Smart Contracts
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install contract dependencies
+        working-directory: ./contracts
+        run: npm ci
+
+      - name: Compile contracts
+        working-directory: ./contracts
+        run: npx hardhat compile
+
+      - name: Run contract tests
+        working-directory: ./contracts
+        run: npx hardhat test
+
+      - name: Run coverage
+        working-directory: ./contracts
+        run: npx hardhat coverage
+
+      - name: Upload contract coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./contracts/coverage/lcov.info
+          flags: contracts
+
+  # ==========================================
+  # JOB 3: Build & Push Docker Image
+  # ==========================================
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [test, test-contracts]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/agent-marketplace
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==========================================
+  # JOB 4: Deploy Smart Contracts
+  # ==========================================
+  deploy-contracts:
+    name: Deploy Contracts
+    runs-on: ubuntu-latest
+    needs: [test, test-contracts]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    environment:
+      name: ${{ github.event.inputs.deploy_target || 'staging' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        working-directory: ./contracts
+        run: npm ci
+
+      - name: Deploy to Base Sepolia
+        working-directory: ./contracts
+        run: npx hardhat run scripts/deploy.js --network base-sepolia
+        env:
+          PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          BASE_SEPOLIA_RPC: ${{ secrets.BASE_SEPOLIA_RPC }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+
+      - name: Verify contracts
+        working-directory: ./contracts
+        run: |
+          echo "Verifying contracts on BaseScan..."
+          npx hardhat verify --network base-sepolia ${{ env.ESCROW_CONTRACT_ADDRESS }} ${{ env.USDC_CONTRACT_ADDRESS }}
+        env:
+          ESCROW_CONTRACT_ADDRESS: ${{ steps.deploy.outputs.escrow_address }}
+          USDC_CONTRACT_ADDRESS: ${{ secrets.USDC_CONTRACT_ADDRESS }}
+
+      - name: Upload deployment artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: contract-deployment
+          path: |
+            contracts/deployments/
+            contracts/artifacts/
+
+  # ==========================================
+  # JOB 5: Deploy to Render (Staging)
+  # ==========================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build, deploy-contracts]
+    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_target == 'staging')
+    environment:
+      name: staging
+      url: https://api-staging.agent-marketplace.com
+    
+    steps:
+      - name: Deploy to Render (Staging)
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache": true}' \
+            ${{ secrets.RENDER_STAGING_DEPLOY_HOOK }}
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for staging deployment..."
+          sleep 30
+          curl -sf https://api-staging.agent-marketplace.com/health || exit 1
+
+      - name: Run smoke tests
+        run: |
+          npm install -g newman
+          newman run tests/postman/smoke-tests.json \
+            --env-var "baseUrl=https://api-staging.agent-marketplace.com"
+
+  # ==========================================
+  # JOB 6: Deploy to Render (Production)
+  # ==========================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build, deploy-contracts, deploy-staging]
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_target == 'production')
+    environment:
+      name: production
+      url: https://api.agent-marketplace.com
+    
+    steps:
+      - name: Deploy to Render (Production)
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache": true}' \
+            ${{ secrets.RENDER_PROD_DEPLOY_HOOK }}
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for production deployment..."
+          sleep 60
+          curl -sf https://api.agent-marketplace.com/health || exit 1
+
+      - name: Run production smoke tests
+        run: |
+          npm install -g newman
+          newman run tests/postman/smoke-tests.json \
+            --env-var "baseUrl=https://api.agent-marketplace.com"
+
+      - name: Notify Slack
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          channel: '#deployments'
+          text: 'Production deployment ${{ job.status }}'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ==========================================
+  # JOB 7: Deploy Frontend to Vercel
+  # ==========================================
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Vercel Environment
+        working-directory: ./frontend
+        run: vercel pull --yes --environment=${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }} --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build Frontend
+        working-directory: ./frontend
+        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          NEXT_PUBLIC_API_URL: ${{ github.ref == 'refs/heads/main' && 'https://api.agent-marketplace.com' || 'https://api-staging.agent-marketplace.com' }}
+          NEXT_PUBLIC_BASE_RPC_URL: ${{ secrets.NEXT_PUBLIC_BASE_RPC_URL }}
+          NEXT_PUBLIC_USDC_CONTRACT: ${{ secrets.NEXT_PUBLIC_USDC_CONTRACT }}
+          NEXT_PUBLIC_ESCROW_CONTRACT: ${{ secrets.NEXT_PUBLIC_ESCROW_CONTRACT }}
+
+      - name: Deploy to Vercel
+        working-directory: ./frontend
+        run: vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }} ${{ github.ref == 'refs/heads/main' && '--prod' || '' }}
