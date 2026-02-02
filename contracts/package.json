@@ -1,0 +1,27 @@
+{
+  "name": "agent-marketplace-contracts",
+  "version": "1.0.0",
+  "description": "AI Agent Marketplace Smart Contracts - Escrow and Registry",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:coverage": "hardhat coverage",
+    "deploy:base": "hardhat deploy --network base",
+    "deploy:base-sepolia": "hardhat deploy --network baseSepolia",
+    "verify:base": "hardhat verify --network base",
+    "node": "hardhat node",
+    "clean": "hardhat clean"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.0",
+    "@openzeppelin/hardhat-upgrades": "^3.0.0",
+    "hardhat": "^2.20.0",
+    "hardhat-deploy": "^0.12.0",
+    "dotenv": "^16.4.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.0"
+  }
+}

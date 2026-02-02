@@ -1,6 +1,8 @@
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 import { DeployFunction } from "hardhat-deploy/types";
 import { ethers } from "hardhat";
+import * as fs from "fs";
+import * as path from "path";
 
 /**
  * @dev Deployment script for AgentEscrow and AgentRegistry contracts
@@ -11,12 +13,18 @@ import { ethers } from "hardhat";
  * 
  * Environment variables:
  * - USDC_ADDRESS: Address of USDC token on target network
+ * 
+ * Features:
+ * - Deploys contracts to specified network
+ * - Saves deployment addresses to JSON file
+ * - Verifies contracts on Etherscan/Basescan
+ * - Sets up initial permissions
  */
 
 const deployContracts: DeployFunction = async function (
   hre: HardhatRuntimeEnvironment
 ) {
-  const { deployments, getNamedAccounts, network } = hre;
+  const { deployments, getNamedAccounts, network, run } = hre;
   const { deploy } = deployments;
   const { deployer } = await getNamedAccounts();
   
@@ -32,44 +40,26 @@ const deployContracts: DeployFunction = async function (
     baseSepolia: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // Base Sepolia USDC
     sepolia: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238", // Sepolia USDC
     hardhat: "", // Will deploy mock for local testing
+    localhost: "", // Will deploy mock for local testing
   };
   
-  let usdcAddress = usdcAddresses[network.name];
+  // Allow override from environment variable
+  let usdcAddress = process.env.USDC_ADDRESS || usdcAddresses[network.name];
   
   // For local testing, deploy a mock USDC token
   if (network.name === "hardhat" || network.name === "localhost") {
     console.log("\n📦 Deploying Mock USDC Token...");
     
-    const mockUSDC = await deploy("MockUSDC", {
-      from: deployer,
-      contract: {
-        abi: [
-          "constructor(uint256 initialSupply)",
-          "function mint(address to, uint256 amount)",
-          "function approve(address spender, uint256 amount) returns (bool)",
-          "function transfer(address to, uint256 amount) returns (bool)",
-          "function transferFrom(address from, address to, uint256 amount) returns (bool)",
-          "function balanceOf(address account) view returns (uint256)",
-          "function allowance(address owner, address spender) view returns (uint256)",
-          "function decimals() view returns (uint8)",
-          "function name() view returns (string)",
-          "function symbol() view returns (string)",
-          "event Transfer(address indexed from, address indexed to, uint256 value)",
-          "event Approval(address indexed owner, address indexed spender, uint256 value)",
-        ],
-        bytecode: "0x" + require("./MockUSDC.json").bytecode,
-      },
-      args: [ethers.parseUnits("1000000", 6)], // 1M USDC with 6 decimals
-      log: true,
-      autoMine: true,
-    });
+    const MockUSDC = await ethers.getContractFactory("MockUSDC");
+    const mockUSDC = await MockUSDC.deploy(ethers.parseUnits("1000000", 6));
+    await mockUSDC.waitForDeployment();
     
-    usdcAddress = mockUSDC.address;
+    usdcAddress = await mockUSDC.getAddress();
     console.log("✅ Mock USDC deployed to:", usdcAddress);
   }
   
   if (!usdcAddress) {
-    throw new Error(`USDC address not configured for network: ${network.name}`);
+    throw new Error(`USDC address not configured for network: ${network.name}. Set USDC_ADDRESS in .env file.`);
   }
   
   // =====================================
@@ -82,7 +72,7 @@ const deployContracts: DeployFunction = async function (
     args: [],
     log: true,
     autoMine: true,
-    waitConfirmations: network.name === "hardhat" ? 1 : 5,
+    waitConfirmations: network.name === "hardhat" || network.name === "localhost" ? 1 : 5,
   });
   
   console.log("✅ AgentRegistry deployed to:", agentRegistry.address);
@@ -97,7 +87,7 @@ const deployContracts: DeployFunction = async function (
     args: [usdcAddress, agentRegistry.address],
     log: true,
     autoMine: true,
-    waitConfirmations: network.name === "hardhat" ? 1 : 5,
+    waitConfirmations: network.name === "hardhat" || network.name === "localhost" ? 1 : 5,
   });
   
   console.log("✅ AgentEscrow deployed to:", agentEscrow.address);
@@ -114,7 +104,8 @@ const deployContracts: DeployFunction = async function (
   
   // Grant VERIFIER_ROLE to deployer
   const VERIFIER_ROLE = await agentRegistryContract.VERIFIER_ROLE();
-  await (await agentRegistryContract.grantRole(VERIFIER_ROLE, deployer)).wait();
+  const tx1 = await agentRegistryContract.grantRole(VERIFIER_ROLE, deployer);
+  await tx1.wait();
   console.log("✅ VERIFIER_ROLE granted to deployer");
   
   // Grant ARBITRATOR_ROLE to deployer in AgentEscrow
@@ -124,22 +115,15 @@ const deployContracts: DeployFunction = async function (
   );
   
   const ARBITRATOR_ROLE = await agentEscrowContract.ARBITRATOR_ROLE();
-  await (await agentEscrowContract.grantRole(ARBITRATOR_ROLE, deployer)).wait();
+  const tx2 = await agentEscrowContract.grantRole(ARBITRATOR_ROLE, deployer);
+  await tx2.wait();
   console.log("✅ ARBITRATOR_ROLE granted to deployer");
   
   // =====================================
-  // Print deployment summary
+  // Save deployment info to JSON
   // =====================================
-  console.log("\n=====================================");
-  console.log("🎉 Deployment Complete!");
-  console.log("=====================================");
-  console.log("Network:", network.name);
-  console.log("USDC Address:", usdcAddress);
-  console.log("AgentRegistry:", agentRegistry.address);
-  console.log("AgentEscrow:", agentEscrow.address);
-  console.log("=====================================");
+  console.log("\n📝 Saving deployment info...");
   
-  // Save deployment info
   const deploymentInfo = {
     network: network.name,
     chainId: network.config.chainId,
@@ -150,14 +134,95 @@ const deployContracts: DeployFunction = async function (
     timestamp: new Date().toISOString(),
   };
   
+  // Create deployments directory if it doesn't exist
+  const deploymentsDir = path.join(__dirname, "..", "deployments");
+  if (!fs.existsSync(deploymentsDir)) {
+    fs.mkdirSync(deploymentsDir, { recursive: true });
+  }
+  
+  // Save to network-specific file
+  const deploymentPath = path.join(deploymentsDir, `${network.name}.json`);
+  fs.writeFileSync(
+    deploymentPath,
+    JSON.stringify(deploymentInfo, null, 2)
+  );
+  console.log(`✅ Deployment info saved to: ${deploymentPath}`);
+  
+  // Save to latest.json for easy access
+  const latestPath = path.join(deploymentsDir, "latest.json");
+  fs.writeFileSync(
+    latestPath,
+    JSON.stringify(deploymentInfo, null, 2)
+  );
+  console.log("✅ Deployment info saved to: deployments/latest.json");
+  
+  // =====================================
+  // Print deployment summary
+  // =====================================
+  console.log("\n=====================================");
+  console.log("🎉 Deployment Complete!");
+  console.log("=====================================");
+  console.log("Network:", network.name);
+  console.log("Chain ID:", network.config.chainId);
+  console.log("USDC Address:", usdcAddress);
+  console.log("AgentRegistry:", agentRegistry.address);
+  console.log("AgentEscrow:", agentEscrow.address);
+  console.log("=====================================");
+  
   console.log("\nDeployment Info (JSON):");
   console.log(JSON.stringify(deploymentInfo, null, 2));
   
-  // Note: In production, you should verify contracts on Etherscan/Basescan
+  // =====================================
+  // Verify contracts on Etherscan/Basescan
+  // =====================================
   if (network.name !== "hardhat" && network.name !== "localhost") {
-    console.log("\n⚠️  Don't forget to verify contracts on the explorer!");
-    console.log(`npx hardhat verify --network ${network.name} ${agentRegistry.address}`);
-    console.log(`npx hardhat verify --network ${network.name} ${agentEscrow.address} ${usdcAddress} ${agentRegistry.address}`);
+    console.log("\n🔍 Verifying contracts on explorer...");
+    
+    // Wait a bit for the contracts to be indexed
+    console.log("⏳ Waiting for contracts to be indexed (10 seconds)...");
+    await new Promise(resolve => setTimeout(resolve, 10000));
+    
+    // Verify AgentRegistry (no constructor args)
+    try {
+      console.log("\nVerifying AgentRegistry...");
+      await run("verify:verify", {
+        address: agentRegistry.address,
+        constructorArguments: [],
+      });
+      console.log("✅ AgentRegistry verified");
+    } catch (error: any) {
+      if (error.message.includes("Already Verified")) {
+        console.log("✅ AgentRegistry already verified");
+      } else {
+        console.error("❌ AgentRegistry verification failed:", error.message);
+      }
+    }
+    
+    // Verify AgentEscrow (with constructor args)
+    try {
+      console.log("\nVerifying AgentEscrow...");
+      await run("verify:verify", {
+        address: agentEscrow.address,
+        constructorArguments: [usdcAddress, agentRegistry.address],
+      });
+      console.log("✅ AgentEscrow verified");
+    } catch (error: any) {
+      if (error.message.includes("Already Verified")) {
+        console.log("✅ AgentEscrow already verified");
+      } else {
+        console.error("❌ AgentEscrow verification failed:", error.message);
+      }
+    }
+    
+    console.log("\n=====================================");
+    console.log("🔗 Explorer URLs:");
+    console.log("=====================================");
+    const explorerBase = network.name === "base" 
+      ? "https://basescan.org" 
+      : "https://sepolia.basescan.org";
+    console.log(`AgentRegistry: ${explorerBase}/address/${agentRegistry.address}`);
+    console.log(`AgentEscrow: ${explorerBase}/address/${agentEscrow.address}`);
+    console.log("=====================================");
   }
 };
 
