@@ -1,6 +1,6 @@
 # Render.com Deployment Configuration
 # https://render.com/docs/blueprint-spec
-# PAID PLAN VERSION - No free tier limitations
+# OPTIMIZED: Only database is paid ($7/month), services are free
 
 services:
   # Web Service - Express API
@@ -8,7 +8,7 @@ services:
     name: agent-marketplace-api
     runtime: node
     region: oregon
-    plan: starter  # Paid plan - $7/month
+    plan: free  # FREE - no need to pay for web service
     branch: master
     buildCommand: npm install && npm run build && npx prisma generate
     startCommand: npm run db:deploy && npm start
@@ -48,8 +48,7 @@ services:
     name: agent-marketplace-reputation-decay
     runtime: node
     region: oregon
-    plan: starter  # Paid plan - $7/month
-    branch: master
+    branch: master  # Cron jobs don't need plan specification
     buildCommand: npm install && npm run build
     schedule: "0 0 * * 0"
     startCommand: npm run cron:reputation-decay
@@ -66,8 +65,7 @@ services:
     name: agent-marketplace-task-cleanup
     runtime: node
     region: oregon
-    plan: starter  # Paid plan - $7/month
-    branch: master
+    branch: master  # Cron jobs don't need plan specification
     buildCommand: npm install && npm run build
     schedule: "0 2 * * *"
     startCommand: npm run cron:task-cleanup
@@ -80,11 +78,11 @@ services:
           property: connectionString
 
 databases:
-  # PostgreSQL Database
+  # PostgreSQL Database - PAID to bypass free tier limit
   - name: agent-marketplace-db
     databaseName: agent_marketplace
     user: agent_marketplace
-    plan: starter  # Paid plan - $7/month
+    plan: starter  # $7/month - only this is paid
     region: oregon
     ipAllowList: []
     postgresMajorVersion: "15"
