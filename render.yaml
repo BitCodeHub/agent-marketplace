@@ -47,10 +47,9 @@ services:
     name: agent-marketplace-reputation-decay
     runtime: node
     region: oregon
-    plan: free
     branch: main
     buildCommand: npm install && npm run build
-    schedule: "0 0 * * 0" # Every Sunday at midnight
+    schedule: "0 0 * * 0"
     startCommand: npm run cron:reputation-decay
     envVars:
       - key: NODE_ENV
@@ -65,10 +64,9 @@ services:
     name: agent-marketplace-task-cleanup
     runtime: node
     region: oregon
-    plan: free
     branch: main
     buildCommand: npm install && npm run build
-    schedule: "0 2 * * *" # Every day at 2am
+    schedule: "0 2 * * *"
     startCommand: npm run cron:task-cleanup
     envVars:
       - key: NODE_ENV
