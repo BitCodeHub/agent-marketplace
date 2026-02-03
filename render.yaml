@@ -1,9 +1,6 @@
 # Render.com Deployment Configuration
 # https://render.com/docs/blueprint-spec
-
-# NOTE: You already have a free database on Render.
-# Create the database manually first, then add DATABASE_URL as an environment variable
-# Or delete your existing free database and let this create a new one
+# PAID PLAN VERSION - No free tier limitations
 
 services:
   # Web Service - Express API
@@ -11,7 +8,7 @@ services:
     name: agent-marketplace-api
     runtime: node
     region: oregon
-    plan: free
+    plan: starter  # Paid plan - $7/month
     branch: master
     buildCommand: npm install && npm run build && npx prisma generate
     startCommand: npm run db:deploy && npm start
@@ -21,10 +18,10 @@ services:
         value: production
       - key: PORT
         value: 10000
-      # Create a PostgreSQL database manually in Render dashboard first
-      # Then copy the Internal Database URL here
       - key: DATABASE_URL
-        sync: false  # Will be set manually in Render dashboard
+        fromDatabase:
+          name: agent-marketplace-db
+          property: connectionString
       - key: JWT_SECRET
         generateValue: true
       - key: JWT_EXPIRES_IN
@@ -51,6 +48,7 @@ services:
     name: agent-marketplace-reputation-decay
     runtime: node
     region: oregon
+    plan: starter  # Paid plan - $7/month
     branch: master
     buildCommand: npm install && npm run build
     schedule: "0 0 * * 0"
@@ -59,16 +57,16 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromService:
-          name: agent-marketplace-api
-          type: web
-          property: envVars.DATABASE_URL
+        fromDatabase:
+          name: agent-marketplace-db
+          property: connectionString
 
   # Cron Job - Task Cleanup (daily)
   - type: cron
     name: agent-marketplace-task-cleanup
     runtime: node
     region: oregon
+    plan: starter  # Paid plan - $7/month
     branch: master
     buildCommand: npm install && npm run build
     schedule: "0 2 * * *"
@@ -77,15 +75,16 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        fromService:
-          name: agent-marketplace-api
-          type: web
-          property: envVars.DATABASE_URL
+        fromDatabase:
+          name: agent-marketplace-db
+          property: connectionString
 
-# DATABASE - Create manually since you already have a free database
-# 1. Go to https://dashboard.render.com
-# 2. Click "New +" → "PostgreSQL"
-# 3. Name: agent-marketplace-db
-# 4. Plan: Free
-# 5. After creation, copy the "Internal Database URL"
-# 6. Add it as environment variable DATABASE_URL in the web service
+databases:
+  # PostgreSQL Database
+  - name: agent-marketplace-db
+    databaseName: agent_marketplace
+    user: agent_marketplace
+    plan: starter  # Paid plan - $7/month
+    region: oregon
+    ipAllowList: []
+    postgresMajorVersion: "15"
