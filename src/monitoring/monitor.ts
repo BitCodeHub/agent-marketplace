@@ -11,7 +11,7 @@
  * Can run as a standalone process or be integrated into the main application.
  */
 
-import { db } from '../src/services/db';
+import { db } from '../services/db';
 import winston from 'winston';
 import { EventEmitter } from 'events';
 
@@ -89,7 +89,7 @@ interface MetricPoint {
 
 interface Alert {
   id: string;
-  severity: 'warning' | 'critical' | 'info';
+  severity: 'info' | 'warning' | 'critical' | 'emergency';
   component: string;
   message: string;
   timestamp: Date;
@@ -394,7 +394,7 @@ class UptimeMonitor extends EventEmitter {
    * Create an alert
    */
   private createAlert(
-    severity: 'warning' | 'critical' | 'info',
+    severity: 'info' | 'warning' | 'critical' | 'emergency',
     component: string,
     message: string
   ): void {
@@ -424,7 +424,10 @@ class UptimeMonitor extends EventEmitter {
     const cutoff = new Date(Date.now() - MONITOR_CONFIG.retention.alerts);
     this.state.alerts = this.state.alerts.filter(a => a.timestamp > cutoff);
     
-    logger[severity](`Alert: ${message}`, { component, alertId: alert.id });
+    // Map severity to logger method
+    const logMethod = severity === 'critical' || severity === 'emergency' ? 'error' :
+                      severity === 'warning' ? 'warn' : 'info';
+    logger[logMethod](`Alert: ${message}`, { component, alertId: alert.id, severity });
     this.emit('alert', alert);
   }
   

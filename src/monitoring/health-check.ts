@@ -7,7 +7,7 @@
  */
 
 import { Request, Response } from 'express';
-import { db } from '../src/services/db';
+import { db } from '../services/db';
 import { ethers } from 'ethers';
 import os from 'os';
 
@@ -255,7 +255,7 @@ function getOverallStatus(deps: DependencyHealth[]): 'healthy' | 'degraded' | 'u
 /**
  * Basic health check endpoint - quick response for load balancers
  */
-export async function basicHealthCheck(req: Request, res: Response): Promise<void> {
+export async function basicHealthCheck(_req: Request, res: Response): Promise<void> {
   try {
     // Quick DB check
     const dbHealth = await Promise.race([
@@ -295,7 +295,7 @@ export async function basicHealthCheck(req: Request, res: Response): Promise<voi
 /**
  * Detailed health check endpoint - comprehensive status
  */
-export async function detailedHealthCheck(req: Request, res: Response): Promise<void> {
+export async function detailedHealthCheck(_req: Request, res: Response): Promise<void> {
   const startTime = Date.now();
   
   try {
@@ -344,7 +344,7 @@ export async function detailedHealthCheck(req: Request, res: Response): Promise<
 /**
  * Readiness check - for Kubernetes-style deployments
  */
-export async function readinessCheck(req: Request, res: Response): Promise<void> {
+export async function readinessCheck(_req: Request, res: Response): Promise<void> {
   try {
     // Check if service is ready to accept traffic
     const dbHealth = await checkDatabaseHealth();
@@ -374,7 +374,7 @@ export async function readinessCheck(req: Request, res: Response): Promise<void>
 /**
  * Liveness check - for Kubernetes-style deployments
  */
-export async function livenessCheck(req: Request, res: Response): Promise<void> {
+export async function livenessCheck(_req: Request, res: Response): Promise<void> {
   // Simple check that process is alive
   res.status(200).json({
     alive: true,
